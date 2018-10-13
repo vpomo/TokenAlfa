@@ -235,8 +235,8 @@ contract Ownable {
  */
 
 contract MintableToken is StandardToken, Ownable {
-    string public constant name = "Alfa";
-    string public constant symbol = "AFA";
+    string public constant name = "ENZO";
+    string public constant symbol = "NZO";
     uint8 public constant decimals = 18;
 
     event Mint(address indexed to, uint256 amount);
@@ -312,62 +312,63 @@ contract Crowdsale is Ownable {
     }
 }
 
-interface ITokenNzo {
-    function balanceOf(address _owner) external constant returns (uint256 balance);
-}
 
-contract AFACrowdsale is Ownable, Crowdsale, MintableToken {
+contract NZOCrowdsale is Ownable, Crowdsale, MintableToken {
     using SafeMath for uint256;
 
-    ITokenNzo contractTokenNZO;
-
     // https://www.coingecko.com/en/coins/ethereum
-    //Sat, 13 Oct 2018 10:00:00 GMT
-    //$5 = 1 token => $ 200 = 1 ETH =>
-    //1 ETH = 200/5 = 40
-    uint256 public rateIco  = 40;
+    //$0.01 = 1 token & $ 1,000 = 2,1541510490715607 ETH =>
+    // 1,000 / 0.01 = 100,000 token = 2,1541510490715607 ETH =>
+    //100,000 token = 2,1541510490715607 ETH =>
+    //1 ETH = 100,000/2,1541510490715607 = 46422
+
+    uint256 public rate  = 46422; // for $0.01
+    //uint256 public rate  = 10; // for test's
 
     mapping (address => uint256) public deposited;
+    mapping (address => uint256) public paidTokens;
+    mapping (address => bool) public contractAdmins;
 
-    uint256 public constant INITIAL_SUPPLY = 21 * 10**6 * (10 ** uint256(decimals));
-    uint256 public    fundForSale = 1575 * 10**4 * (10 ** uint256(decimals));
-    uint256 public   fundTeam = 525 * 10**4 * (10 ** uint256(decimals));
-    
-    uint256 public minimumNzo = 1 * 10**8 * (10 ** uint256(decimals));
+    uint256 public constant INITIAL_SUPPLY = 21 * 10**9 * (10 ** uint256(decimals));
+    uint256 public    fundForSale = 12600 * 10**6 * (10 ** uint256(decimals));
+    uint256 public    fundReserve = 5250000000 * (10 ** uint256(decimals));
+    uint256 public fundFoundation = 1000500000 * (10 ** uint256(decimals));
+    uint256 public       fundTeam = 2100000000 * (10 ** uint256(decimals));
 
-    uint256 limitStage1 =  525 * 10**4 * (10 ** uint256(decimals));
-    uint256 limitStage2 = 1050 * 10**4 * (10 ** uint256(decimals));
-    uint256 limitStage3 = 1575 * 10**4 * (10 ** uint256(decimals));
+    uint256 limitWindowZero = 1 * 10**9 * (10 ** uint256(decimals));
+    uint256 limitWindowOther = 1 * 10**9 * (10 ** uint256(decimals));
+    //uint256 limitWindowZero = 20 * (10 ** uint256(decimals)); // for tests
+    //uint256 limitWindowOther = 10 * (10 ** uint256(decimals)); // for tests
 
-//    uint256 limitStage1 = 160 * (10 ** uint256(decimals)); // for test's
-//    uint256 limitStage2 = 200 * (10 ** uint256(decimals)); // for test's
-//    uint256 limitStage3 = 300 * (10 ** uint256(decimals)); // for test's
+    address public addressFundReserve = 0x67446E0673418d302dB3552bdF05363dB5Fda9Ce;
+    address public addressFundFoundation = 0xfe3859CB2F9d6f448e9959e6e8Fe0be841c62459;
+    address public addressFundTeam = 0xfeD3B7eaDf1bD15FbE3aA1f1eAfa141efe0eeeb2;
 
-    address public addressTokenNZO   = 0x3e7203ef349c04b8cb46ebbfcb8ec046d7196504;
-    address public addressFundTeam   = 0x1Be604d15A09482A31317956c24288B6Eb127De1;
+    address public bufferWallet = 0x09618fB091417c08BA74c9CFC65bB2A81F080300;
 
-    bool public saleToken = true;
+    uint256 public startTime = 1533312000; // Fri, 03 Aug 2018 16:00:00 GMT
+    // Eastern Standard Time (EST) + 4 hours = Greenwich Mean Time (GMT))
+    uint numberPeriods = 4;
+
 
     uint256 public countInvestor;
 
     event TokenPurchase(address indexed beneficiary, uint256 value, uint256 amount);
-    event TokenLimitReached(address indexed sender, uint256 tokenRaised, uint256 purchasedToken);
+    event TokenLimitReached(uint256 tokenRaised, uint256 purchasedToken);
     event MinWeiLimitReached(address indexed sender, uint256 weiAmount);
     event CurrentPeriod(uint period);
-    event ChangeAddress(address indexed owner, address indexed newAddress, address indexed oldAddress);
-    event ChangeValue(address indexed owner, uint256 newValue, uint256 oldValue);
+    event Finalized();
 
-    constructor(address _owner, address _wallet) public
-    Crowdsale(_wallet)
+    constructor(address _owner) public
+    Crowdsale(_owner)
     {
         require(_owner != address(0));
-        contractTokenNZO = ITokenNzo(addressTokenNZO);
         owner = _owner;
-        //owner = msg.sender; // $$$ for test's
+        owner = msg.sender; // for test's
         transfersEnabled = true;
         mintingFinished = false;
         totalSupply = INITIAL_SUPPLY;
-        bool resultMintForOwner = mintForFund(owner);
+        bool resultMintForOwner = mintForOwner(owner);
         require(resultMintForOwner);
     }
 
@@ -378,14 +379,13 @@ contract AFACrowdsale is Ownable, Crowdsale, MintableToken {
 
     function buyTokens(address _investor) public payable returns (uint256){
         require(_investor != address(0));
-        require(checkMinValueTokenNzo(_investor));
-
         uint256 weiAmount = msg.value;
         uint256 tokens = validPurchaseTokens(weiAmount);
         if (tokens == 0) {revert();}
         weiRaised = weiRaised.add(weiAmount);
         tokenAllocated = tokenAllocated.add(tokens);
-        mint(_investor, tokens, owner);
+        mint(bufferWallet, tokens, owner);
+        paidTokens[_investor] = paidTokens[_investor].add(tokens);
 
         emit TokenPurchase(_investor, weiAmount, tokens);
         if (deposited[_investor] == 0) {
@@ -396,49 +396,74 @@ contract AFACrowdsale is Ownable, Crowdsale, MintableToken {
         return tokens;
     }
 
-    function checkMinValueTokenNzo(address _investor) public view returns (bool) {
-        if (contractTokenNZO.balanceOf(_investor) >= minimumNzo) {
-            return true;
-        } else {
-            return false;
-        }
-    }
-
     function getTotalAmountOfTokens(uint256 _weiAmount) internal returns (uint256) {
+        uint256 currentDate = now;
+        //currentDate = 1533513600; // (06 Aug 2018 00:00:00 GMT) for test's
+        //currentDate = 1540051200; // (20 Oct 2018 00:00:00 GMT) for test's
         uint currentPeriod = 0;
+        currentPeriod = getPeriod(currentDate);
         uint256 amountOfTokens = 0;
-        if(currentPeriod == 0){
-            amountOfTokens = _weiAmount.mul(rateIco);
-            if (tokenAllocated.add(amountOfTokens) > limitStage1) {
-                currentPeriod = currentPeriod.add(1);
+        if(currentPeriod < 100){
+            if(currentPeriod == 0){
+                amountOfTokens = _weiAmount.mul(rate).mul(2);
+                if (tokenAllocated.add(amountOfTokens) > limitWindowZero) {
+                    currentPeriod = currentPeriod.add(1);
+                }
             }
-        }
-        if(currentPeriod == 1){
-            amountOfTokens = _weiAmount.mul(rateIco).div(2);
-            if (tokenAllocated.add(amountOfTokens) > limitStage2) {
-                currentPeriod = currentPeriod.add(1);
-            }
-        }
-        if(currentPeriod == 2){
-            amountOfTokens = _weiAmount.mul(rateIco).div(5);
-            if (tokenAllocated.add(amountOfTokens) > limitStage3) {
-                amountOfTokens = 0;
+            if(0 < currentPeriod && currentPeriod < (numberPeriods + 1)){
+                while(currentPeriod < defineCurrentPeriod(currentPeriod, _weiAmount)){
+                    currentPeriod = currentPeriod.add(1);
+                }
+                amountOfTokens = _weiAmount.mul(rate).div(currentPeriod);
             }
         }
         emit CurrentPeriod(currentPeriod);
         return amountOfTokens;
     }
 
+    function defineCurrentPeriod(uint _currentPeriod, uint256 _weiAmount) public view returns (uint) {
+        uint256 amountOfTokens = _weiAmount.mul(rate).div(_currentPeriod);
+        if(_currentPeriod == 4) {return 4;}
+        if (tokenAllocated.add(amountOfTokens) > limitWindowZero + limitWindowOther.mul(_currentPeriod)) {
+            return _currentPeriod.add(1);
+        } else {
+            return _currentPeriod;
+        }
+    }
+
+    function getPeriod(uint256 _currentDate) public view returns (uint) {
+        if( startTime > _currentDate && _currentDate > startTime + 90 days){
+            return 100;
+        }
+        if( startTime <= _currentDate && _currentDate <= startTime + 30 days){
+            return 0;
+        }
+        for(uint j = 0; j < numberPeriods; j++){
+            if( startTime + 30 days + j*15 days <= _currentDate && _currentDate <= startTime + 30 days + (j+1)*15 days){
+                return j + 1;
+            }
+        }
+        return 100;
+    }
+
     function deposit(address investor) internal {
         deposited[investor] = deposited[investor].add(msg.value);
     }
 
-    function mintForFund(address _walletOwner) internal returns (bool result) {
+    function paidTokensOf(address _owner) public constant returns (uint256) {
+        return paidTokens[_owner];
+    }
+
+    function mintForOwner(address _walletOwner) internal returns (bool result) {
         result = false;
         require(_walletOwner != address(0));
         balances[_walletOwner] = balances[_walletOwner].add(fundForSale);
 
         balances[addressFundTeam] = balances[addressFundTeam].add(fundTeam);
+        balances[addressFundReserve] = balances[addressFundReserve].add(fundReserve);
+        balances[addressFundFoundation] = balances[addressFundFoundation].add(fundFoundation);
+
+        //tokenAllocated = tokenAllocated.add(12300000000 * (10 ** uint256(decimals))); //for test's
 
         result = true;
     }
@@ -449,55 +474,57 @@ contract AFACrowdsale is Ownable, Crowdsale, MintableToken {
 
     function validPurchaseTokens(uint256 _weiAmount) public returns (uint256) {
         uint256 addTokens = getTotalAmountOfTokens(_weiAmount);
-        if (saleToken == false) {
+        if (_weiAmount < 0.1 ether) {
+            emit MinWeiLimitReached(msg.sender, _weiAmount);
             return 0;
         }
         if (tokenAllocated.add(addTokens) > fundForSale) {
-            emit TokenLimitReached(msg.sender, tokenAllocated, addTokens);
+            emit TokenLimitReached(tokenAllocated, addTokens);
             return 0;
         }
         return addTokens;
     }
 
+    function finalize() public onlyOwner returns (bool result) {
+        result = false;
+        wallet.transfer(address(this).balance);
+        finishMinting();
+        emit Finalized();
+        result = true;
+    }
+
+    function setRate(uint256 _newRate) external onlyOwner returns (bool){
+        require(_newRate > 0);
+        rate = _newRate;
+        return true;
+    }
+
     /**
-     * @dev owner change rate for ICO
-     * @param _value new rate value
-     */
-    function setRateIco(uint256 _value) public onlyOwner {
-        require(_value > 0);
-        uint256 _oldValue = rateIco;
-        rateIco = _value;
-        emit ChangeValue(msg.sender, _value, _oldValue);
+    * @dev Add an contract admin
+    */
+    function setContractAdmin(address _admin, bool _isAdmin) public onlyOwner {
+        contractAdmins[_admin] = _isAdmin;
     }
 
-    function setMinimumNzo(uint256 _value) public onlyOwner {
-        require(_value >= 0);
-        uint256 _oldValue = minimumNzo;
-        minimumNzo = _value;
-        emit ChangeValue(msg.sender, _value, _oldValue);
+    modifier onlyOwnerOrAdmin() {
+        require(msg.sender == owner || contractAdmins[msg.sender] || msg.sender == bufferWallet);
+        _;
     }
 
-    function setWallet(address _newWallet) public onlyOwner {
-        require(_newWallet != address(0));
-        address _oldWallet = wallet;
-        wallet = _newWallet;
-        emit ChangeAddress(msg.sender, _newWallet, _oldWallet);
-    }
-
-    function setContractNZO(address _newAddress) public onlyOwner {
-        require(_newAddress != address(0));
-        contractTokenNZO = ITokenNzo(_newAddress);
-        address _oldAddress = addressTokenNZO;
-        addressTokenNZO = _newAddress;
-        emit ChangeAddress(msg.sender, _newAddress, _oldAddress);
-    }
-
-    function startSale() public onlyOwner {
-        saleToken = true;
-    }
-
-    function stopSale() public onlyOwner {
-        saleToken = false;
+    function batchTransfer(address[] _recipients, uint256[] _values) external onlyOwnerOrAdmin returns (bool) {
+        require( _recipients.length > 0 && _recipients.length == _values.length);
+        uint256 total = 0;
+        for(uint i = 0; i < _values.length; i++){
+            total = total.add(_values[i]);
+        }
+        require(total <= balanceOf(msg.sender));
+        for(uint j = 0; j < _recipients.length; j++){
+            transfer(_recipients[j], _values[j]);
+            require(0 <= _values[j]);
+            require(_values[j] <= paidTokens[_recipients[j]]);
+            paidTokens[_recipients[j]].sub(_values[j]);
+            emit Transfer(msg.sender, _recipients[j], _values[j]);
+        }
+        return true;
     }
 }
-
