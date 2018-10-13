@@ -343,7 +343,7 @@ contract AFACrowdsale is Ownable, Crowdsale, MintableToken {
 //    uint256 limitStage2 = 200 * (10 ** uint256(decimals)); // for test's
 //    uint256 limitStage3 = 300 * (10 ** uint256(decimals)); // for test's
 
-    address public addressTokenNZO   = 0x3e7203ef349c04b8cb46ebbfcb8ec046d7196504;
+    address public addressTokenNZO   = 0x3E7203ef349C04B8Cb46EBbFcb8EC046d7196504;
     address public addressFundTeam   = 0x1Be604d15A09482A31317956c24288B6Eb127De1;
 
     bool public saleToken = true;
